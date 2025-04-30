@@ -33,7 +33,9 @@ sudo -u postgres psql
 
 # Create database and user
 CREATE DATABASE travel_db;
+
 CREATE USER travel_user WITH PASSWORD 'your_password';
+
 GRANT ALL PRIVILEGES ON DATABASE travel_db TO travel_user;
 
 # Connect to the travel_db
@@ -45,6 +47,7 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO travel_user;
 
 # Exit PostgreSQL
 \q
+
 Update database connection: Edit database.py and update the connection string:
 SQLALCHEMY_DATABASE_URL = "postgresql://travel_user:your_password@localhost/travel_db"
 Database Setup
