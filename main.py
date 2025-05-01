@@ -5,13 +5,24 @@ from typing import List, Optional
 from pydantic import BaseModel
 from database import SessionLocal
 import models
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Add your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Pydantic models
 class AccommodationCreate(BaseModel):
     hotel_id: int
     day_number: int
+
 
 class TransferCreate(BaseModel):
     day_number: int
@@ -20,9 +31,11 @@ class TransferCreate(BaseModel):
     transfer_type: str
     duration_hours: float
 
+
 class ItineraryActivityCreate(BaseModel):
     activity_id: int
     day_number: int
+
 
 class ItineraryCreate(BaseModel):
     name: str
@@ -34,37 +47,39 @@ class ItineraryCreate(BaseModel):
     transfers: List[TransferCreate]
     itinerary_activities: List[ItineraryActivityCreate]
 
+
 # MCP Routes
 @app.get("/mcp/recommended-itineraries/")
 def get_recommended_itineraries(
     nights: int = Query(..., ge=2, le=8),
-    region: Optional[str] = Query(None, enum=['Phuket', 'Krabi'])
+    region: Optional[str] = Query(None, enum=["Phuket", "Krabi"]),
 ):
     if not 2 <= nights <= 8:
         raise HTTPException(
-            status_code=400,
-            detail="Duration must be between 2 and 8 nights"
+            status_code=400, detail="Duration must be between 2 and 8 nights"
         )
-    
+
     db = SessionLocal()
     try:
         query = db.query(models.Itinerary).filter(
             models.Itinerary.is_recommended == True,
-            models.Itinerary.duration_nights == nights
+            models.Itinerary.duration_nights == nights,
         )
-        
+
         if region:
-            query = query.filter(models.Itinerary.region == models.Region[region.upper()])
-        
+            query = query.filter(
+                models.Itinerary.region == models.Region[region.upper()]
+            )
+
         recommended = query.all()
-        
+
         if not recommended:
             raise HTTPException(
                 status_code=404,
                 detail=f"No recommended itineraries found for {nights} nights"
-                f"{f' in {region}' if region else ''}"
+                f"{f' in {region}' if region else ''}",
             )
-        
+
         # Convert to dictionary with relationships
         result = []
         for itinerary in recommended:
@@ -80,9 +95,10 @@ def get_recommended_itineraries(
                         "hotel": {
                             "id": acc.hotel.id,
                             "name": acc.hotel.name,
-                            "type": acc.hotel.type.value
-                        }
-                    } for acc in itinerary.accommodations
+                            "type": acc.hotel.type.value,
+                        },
+                    }
+                    for acc in itinerary.accommodations
                 ],
                 "transfers": [
                     {
@@ -90,8 +106,9 @@ def get_recommended_itineraries(
                         "from_location": t.from_location.name,
                         "to_location": t.to_location.name,
                         "transfer_type": t.transfer_type.value,
-                        "duration_hours": t.duration_hours
-                    } for t in itinerary.transfers
+                        "duration_hours": t.duration_hours,
+                    }
+                    for t in itinerary.transfers
                 ],
                 "activities": [
                     {
@@ -100,16 +117,18 @@ def get_recommended_itineraries(
                             "id": act.activity.id,
                             "name": act.activity.name,
                             "description": act.activity.description,
-                            "duration_hours": act.activity.duration_hours
-                        }
-                    } for act in itinerary.activities
-                ]
+                            "duration_hours": act.activity.duration_hours,
+                        },
+                    }
+                    for act in itinerary.activities
+                ],
             }
             result.append(itinerary_dict)
-        
+
         return result
     finally:
         db.close()
+
 
 # Regular itinerary routes
 @app.post("/itineraries/")
@@ -122,7 +141,7 @@ def create_itinerary(itinerary: ItineraryCreate):
             region=models.Region[itinerary.region.upper()],
             description=itinerary.description,
             duration_nights=itinerary.duration_nights,
-            is_recommended=itinerary.is_recommended
+            is_recommended=itinerary.is_recommended,
         )
         db.add(db_itinerary)
         db.flush()
@@ -132,16 +151,20 @@ def create_itinerary(itinerary: ItineraryCreate):
             accommodation = models.Accommodation(
                 itinerary_id=db_itinerary.id,
                 hotel_id=acc.hotel_id,
-                day_number=acc.day_number
+                day_number=acc.day_number,
             )
             db.add(accommodation)
 
         # Add transfers
         for transfer in itinerary.transfers:
             # Get location IDs based on names
-            from_location = db.query(models.Location).filter_by(name=transfer.from_location).first()
-            to_location = db.query(models.Location).filter_by(name=transfer.to_location).first()
-            
+            from_location = (
+                db.query(models.Location).filter_by(name=transfer.from_location).first()
+            )
+            to_location = (
+                db.query(models.Location).filter_by(name=transfer.to_location).first()
+            )
+
             if not from_location or not to_location:
                 raise HTTPException(status_code=400, detail="Invalid location names")
 
@@ -151,7 +174,7 @@ def create_itinerary(itinerary: ItineraryCreate):
                 from_location_id=from_location.id,
                 to_location_id=to_location.id,
                 transfer_type=models.TransferType[transfer.transfer_type.upper()],
-                duration_hours=transfer.duration_hours
+                duration_hours=transfer.duration_hours,
             )
             db.add(db_transfer)
 
@@ -160,17 +183,20 @@ def create_itinerary(itinerary: ItineraryCreate):
             db_activity = models.ItineraryActivity(
                 itinerary_id=db_itinerary.id,
                 activity_id=activity.activity_id,
-                day_number=activity.day_number
+                day_number=activity.day_number,
             )
             db.add(db_activity)
 
         db.commit()
+
+        print(f"✅ Itinerary created (ID: {db_itinerary.id}): {itinerary.dict()}")
         return {"message": "Itinerary created successfully", "id": db_itinerary.id}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         db.close()
+
 
 @app.get("/itineraries/{itinerary_id}")
 def get_itinerary(itinerary_id: int):
@@ -179,7 +205,7 @@ def get_itinerary(itinerary_id: int):
         itinerary = db.query(models.Itinerary).filter_by(id=itinerary_id).first()
         if not itinerary:
             raise HTTPException(status_code=404, detail="Itinerary not found")
-        
+
         # Convert to dictionary with relationships
         result = {
             "id": itinerary.id,
@@ -193,9 +219,10 @@ def get_itinerary(itinerary_id: int):
                     "hotel": {
                         "id": acc.hotel.id,
                         "name": acc.hotel.name,
-                        "type": acc.hotel.type.value
-                    }
-                } for acc in itinerary.accommodations
+                        "type": acc.hotel.type.value,
+                    },
+                }
+                for acc in itinerary.accommodations
             ],
             "transfers": [
                 {
@@ -203,8 +230,9 @@ def get_itinerary(itinerary_id: int):
                     "from_location": t.from_location.name,
                     "to_location": t.to_location.name,
                     "transfer_type": t.transfer_type.value,
-                    "duration_hours": t.duration_hours
-                } for t in itinerary.transfers
+                    "duration_hours": t.duration_hours,
+                }
+                for t in itinerary.transfers
             ],
             "activities": [
                 {
@@ -213,11 +241,67 @@ def get_itinerary(itinerary_id: int):
                         "id": act.activity.id,
                         "name": act.activity.name,
                         "description": act.activity.description,
-                        "duration_hours": act.activity.duration_hours
-                    }
-                } for act in itinerary.activities
-            ]
+                        "duration_hours": act.activity.duration_hours,
+                    },
+                }
+                for act in itinerary.activities
+            ],
         }
         return result
+    finally:
+        db.close()
+
+
+@app.get("/locations/")
+def get_locations():
+    db = SessionLocal()
+    try:
+        locations = db.query(models.Location).all()
+        return [
+            {
+                "id": loc.id,
+                "name": loc.name,
+                "type": loc.type.value,
+                "region": loc.region.value,
+                "description": loc.description,
+                "latitude": loc.latitude,
+                "longitude": loc.longitude,
+            }
+            for loc in locations
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/activities/")
+def get_activities(region: Optional[str] = Query(None, enum=["Phuket", "Krabi"])):
+    db = SessionLocal()
+    try:
+        query = db.query(models.Activity)
+        if region:
+            query = query.filter(
+                models.Activity.region == models.Region[region.upper()]
+            )
+        activities = query.all()
+        return [
+            {
+                "id": act.id,
+                "name": act.name,
+                "description": act.description,
+                "region": act.region.value,
+                "duration_hours": act.duration_hours,
+                "price": act.price,
+                "location": (
+                    {
+                        "id": act.location.id,
+                        "name": act.location.name,
+                        "type": act.location.type.value,
+                    }
+                    if act.location
+                    else None
+                ),
+            }
+            for act in activities
+        ]
     finally:
         db.close()

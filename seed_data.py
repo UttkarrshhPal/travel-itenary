@@ -16,6 +16,15 @@ def seed_database():
             longitude=98.3169
         )
         
+        krabi_airport = models.Location(
+            name="Krabi Airport",
+            type=models.LocationType.AIRPORT,
+            region=models.Region.KRABI,
+            description="Krabi International Airport",
+            latitude=8.0533,
+            longitude=98.9198
+        )
+        
         marina_phuket = models.Location(
             name="Marina Phuket Resort",
             type=models.LocationType.HOTEL,
@@ -43,7 +52,25 @@ def seed_database():
             longitude=98.7784
         )
 
-        db.add_all([phuket_airport, marina_phuket, krabi_resort, phi_phi])
+        ao_nang = models.Location(
+            name="Ao Nang Beach",
+            type=models.LocationType.ATTRACTION,
+            region=models.Region.KRABI,
+            description="Popular beach in Krabi",
+            latitude=8.0349,
+            longitude=98.8173
+        )
+
+        railay = models.Location(
+            name="Railay Beach",
+            type=models.LocationType.ATTRACTION,
+            region=models.Region.KRABI,
+            description="Famous for rock climbing and beautiful beaches",
+            latitude=8.0055,
+            longitude=98.8370
+        )
+
+        db.add_all([phuket_airport, krabi_airport, marina_phuket, krabi_resort, phi_phi, ao_nang, railay])
         db.flush()
 
         # Create activities
@@ -56,56 +83,79 @@ def seed_database():
             location_id=phi_phi.id
         )
 
-        db.add(island_hopping)
+        rock_climbing = models.Activity(
+            name="Railay Beach Rock Climbing",
+            description="Half day rock climbing experience",
+            region=models.Region.KRABI,
+            duration_hours=4,
+            price=80.0,
+            location_id=railay.id
+        )
+
+        four_islands = models.Activity(
+            name="Four Islands Tour",
+            description="Full day tour of Krabi's famous islands",
+            region=models.Region.KRABI,
+            duration_hours=6,
+            price=90.0,
+            location_id=ao_nang.id
+        )
+
+        db.add_all([island_hopping, rock_climbing, four_islands])
         db.flush()
 
-        # Create recommended itineraries
-        for nights in range(2, 9):
-            itinerary = models.Itinerary(
-                name=f"Phuket {nights}-Night Adventure",
-                region=models.Region.PHUKET,
-                description=f"Recommended {nights}-night stay in Phuket",
-                duration_nights=nights,
-                is_recommended=True
-            )
-            db.add(itinerary)
-            db.flush()
-
-            # Add accommodations
-            for day in range(1, nights + 1):
-                accommodation = models.Accommodation(
-                    itinerary_id=itinerary.id,
-                    hotel_id=marina_phuket.id,
-                    day_number=day
+        # Create recommended itineraries for both Phuket and Krabi
+        for region, default_hotel, airport in [
+            (models.Region.PHUKET, marina_phuket, phuket_airport),
+            (models.Region.KRABI, krabi_resort, krabi_airport)
+        ]:
+            for nights in range(2, 9):
+                itinerary = models.Itinerary(
+                    name=f"{region.value} {nights}-Night Adventure",
+                    region=region,
+                    description=f"Recommended {nights}-night stay in {region.value}",
+                    duration_nights=nights,
+                    is_recommended=True
                 )
-                db.add(accommodation)
+                db.add(itinerary)
+                db.flush()
 
-            # Add transfers
-            arrival_transfer = models.Transfer(
-                itinerary_id=itinerary.id,
-                day_number=1,
-                from_location_id=phuket_airport.id,
-                to_location_id=marina_phuket.id,
-                transfer_type=models.TransferType.CAR,
-                duration_hours=1.0
-            )
-            departure_transfer = models.Transfer(
-                itinerary_id=itinerary.id,
-                day_number=nights + 1,
-                from_location_id=marina_phuket.id,
-                to_location_id=phuket_airport.id,
-                transfer_type=models.TransferType.CAR,
-                duration_hours=1.0
-            )
-            db.add_all([arrival_transfer, departure_transfer])
+                # Add accommodations
+                for day in range(1, nights + 1):
+                    accommodation = models.Accommodation(
+                        itinerary_id=itinerary.id,
+                        hotel_id=default_hotel.id,
+                        day_number=day
+                    )
+                    db.add(accommodation)
 
-            # Add activities
-            activity = models.ItineraryActivity(
-                itinerary_id=itinerary.id,
-                activity_id=island_hopping.id,
-                day_number=2
-            )
-            db.add(activity)
+                # Add transfers
+                arrival_transfer = models.Transfer(
+                    itinerary_id=itinerary.id,
+                    day_number=1,
+                    from_location_id=airport.id,
+                    to_location_id=default_hotel.id,
+                    transfer_type=models.TransferType.CAR,
+                    duration_hours=1.0
+                )
+                departure_transfer = models.Transfer(
+                    itinerary_id=itinerary.id,
+                    day_number=nights + 1,
+                    from_location_id=default_hotel.id,
+                    to_location_id=airport.id,
+                    transfer_type=models.TransferType.CAR,
+                    duration_hours=1.0
+                )
+                db.add_all([arrival_transfer, departure_transfer])
+
+                # Add default activity based on region
+                default_activity = island_hopping if region == models.Region.PHUKET else four_islands
+                activity = models.ItineraryActivity(
+                    itinerary_id=itinerary.id,
+                    activity_id=default_activity.id,
+                    day_number=2
+                )
+                db.add(activity)
 
         db.commit()
         print("Database seeded successfully!")
